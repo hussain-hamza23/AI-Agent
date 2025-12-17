@@ -8,3 +8,13 @@ wheels/
 .env
 # Virtual environments
 .venv
+
+#scripts for testing function capabilities
+test_get_file_content.py
+test_get_files_info.py
+test_run_python_file.py
+test_write_file.py
+lorem.txt
+morelorem.txt
+AI_Agent/
+calculator/test_folder
