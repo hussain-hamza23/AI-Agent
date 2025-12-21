@@ -4,7 +4,7 @@ from google import genai
 from google.genai import types
 from dotenv import load_dotenv
 from prompts import system_prompt
-from config import WORKING_DIRECTORY
+from config import WORKING_DIRECTORY, MAX_ITERATIONS
 from functions.get_files_info import schema_get_files_info, get_files_info
 from functions.get_file_content import schema_get_files_content, get_file_content
 from functions.write_file import schema_write_file, write_file
@@ -48,7 +48,7 @@ def call_function(function_call_part, verbose = False):
     )
 
 
-def generate_content(client, messages, verbose, available_functions):
+def generate_content(client, messages: list, verbose, available_functions):
     response = client.models.generate_content(
         model="gemini-2.5-flash",
         contents=messages,
@@ -60,21 +60,25 @@ def generate_content(client, messages, verbose, available_functions):
     if prompt_tokens is None or response_tokens is None:
         raise RuntimeError("Failed API Request")
     
-    if not response.function_calls:
-        return f"Response:\n {response.text}"
+    if response.candidates and response.candidates is not None:
+        for message in response.candidates:
+            messages_in_response = message.content
+            messages.append(messages_in_response)
 
-    call_response = []
+    if response.function_calls:
+        call_response = []
+        for function in response.function_calls:
+            result = call_function(function, verbose)
+            if not result.parts or not result.parts[0].function_response or result.parts[0].function_response.response is None:
+                raise Exception("Error: Empty funcion call result")
+            
+            call_response.append(result.parts[0])
+            if verbose:
+                print(f"-> {result.parts[0].function_response.response}")
+        messages.append(types.Content(role="user",parts=call_response))
+        return response
 
-    for function in response.function_calls:
-        result = call_function(function, verbose=True if verbose else False)
-        if not result.parts or not result.parts[0].function_response or result.parts[0].function_response.response is None:
-            raise Exception("Error: Empty funcion call result")
-        
-        call_response.append(result.parts[0])
-        if verbose:
-            print(f"-> {result.parts[0].function_response.response}")
-    
-    return call_response
+    return response.text
 
 
     
@@ -97,15 +101,16 @@ def main():
     messages = [types.Content(role="user", parts=[types.Part(text=args.user_prompt)])]
     available_functions = types.Tool(function_declarations=[schema_get_files_info, schema_get_files_content,schema_write_file,schema_run_python_file],)
 
-    print(generate_content(client, messages, args.verbose, available_functions))
-
-
-
-    
-
-
-
-
+    count = 0
+    while count < MAX_ITERATIONS:
+        try:
+            response = generate_content(client, messages, args.verbose,available_functions)
+            if isinstance(response, str) and response != "":
+                print(f"Final Response:\n{response}")
+                break  
+            count += 1
+        except Exception as e:
+            print(f"Error: has occured {e}")
 
 if __name__ == "__main__":
     main()
